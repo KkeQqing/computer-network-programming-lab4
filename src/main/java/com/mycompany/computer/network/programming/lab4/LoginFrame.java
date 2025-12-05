@@ -4,6 +4,8 @@
  */
 package com.mycompany.computer.network.programming.lab4;
 
+import org.json.JSONObject;
+
 import javax.swing.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -40,9 +42,9 @@ public class LoginFrame extends javax.swing.JFrame {
         jLabel2 = new javax.swing.JLabel();
         jTextField1 = new javax.swing.JTextField();
         jLabel3 = new javax.swing.JLabel();
-        jLabel4 = new javax.swing.JLabel();
         jPasswordField1 = new javax.swing.JPasswordField();
         jButton1 = new javax.swing.JButton();
+        jButton2 = new javax.swing.JButton();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
         setTitle("登录");
@@ -59,9 +61,6 @@ public class LoginFrame extends javax.swing.JFrame {
         jLabel3.setFont(new java.awt.Font("Microsoft YaHei UI", 0, 18)); // NOI18N
         jLabel3.setText("密码：");
 
-        jLabel4.setForeground(new java.awt.Color(255, 0, 51));
-        jLabel4.setText("注册");
-
         jPasswordField1.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 jPasswordField1ActionPerformed(evt);
@@ -75,16 +74,25 @@ public class LoginFrame extends javax.swing.JFrame {
             }
         });
 
+        jButton2.setFont(new java.awt.Font("Microsoft YaHei UI", 0, 10)); // NOI18N
+        jButton2.setForeground(new java.awt.Color(204, 0, 0));
+        jButton2.setText("注册");
+        jButton2.setBorder(javax.swing.BorderFactory.createEmptyBorder(1, 1, 1, 1));
+        jButton2.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton2ActionPerformed(evt);
+            }
+        });
+
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
         jPanel1Layout.setHorizontalGroup(
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel1Layout.createSequentialGroup()
-                .addGap(0, 0, Short.MAX_VALUE)
-                .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 41, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGap(36, 36, 36))
             .addGroup(jPanel1Layout.createSequentialGroup()
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(jPanel1Layout.createSequentialGroup()
+                        .addGap(69, 69, 69)
+                        .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 107, javax.swing.GroupLayout.PREFERRED_SIZE))
                     .addGroup(jPanel1Layout.createSequentialGroup()
                         .addGap(26, 26, 26)
                         .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
@@ -94,9 +102,9 @@ public class LoginFrame extends javax.swing.JFrame {
                         .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
                             .addComponent(jTextField1, javax.swing.GroupLayout.DEFAULT_SIZE, 115, Short.MAX_VALUE)
                             .addComponent(jPasswordField1)))
-                    .addGroup(jPanel1Layout.createSequentialGroup()
-                        .addGap(69, 69, 69)
-                        .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 107, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                    .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, jPanel1Layout.createSequentialGroup()
+                        .addContainerGap()
+                        .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 51, javax.swing.GroupLayout.PREFERRED_SIZE)))
                 .addContainerGap(46, Short.MAX_VALUE))
         );
         jPanel1Layout.setVerticalGroup(
@@ -111,8 +119,8 @@ public class LoginFrame extends javax.swing.JFrame {
                     .addComponent(jLabel3)
                     .addComponent(jPasswordField1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jLabel4)
-                .addGap(12, 12, 12)
+                .addComponent(jButton2)
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 38, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addContainerGap(8, Short.MAX_VALUE))
         );
@@ -137,7 +145,7 @@ public class LoginFrame extends javax.swing.JFrame {
                 .addComponent(jLabel1, javax.swing.GroupLayout.PREFERRED_SIZE, 60, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(jPanel1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addContainerGap(24, Short.MAX_VALUE))
+                .addContainerGap(31, Short.MAX_VALUE))
         );
 
         pack();
@@ -200,7 +208,86 @@ public class LoginFrame extends javax.swing.JFrame {
 
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
         // TODO add your handling code here:
+        String username = jTextField1.getText();
+        String password = new String(jPasswordField1.getPassword());
+
+        try {
+            DatagramSocket socket = new DatagramSocket();
+            String request = "{\"type\": \"login\", \"username\": \"" + username + "\", \"password\": \"" + password + "\"}";
+            byte[] data = request.getBytes();
+            InetAddress address = InetAddress.getByName("localhost");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            socket.send(packet);
+
+            byte[] buffer = new byte[1024];
+            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
+            socket.receive(response);
+            String result = new String(response.getData(), 0, response.getLength());
+
+            JSONObject json = new JSONObject(result);
+            if ("success".equals(json.getString("status"))) {
+                dispose(); // 关闭登录窗口
+                new ChatRoomFrame(username).setVisible(true); // 传入用户名
+            } else {
+                JOptionPane.showMessageDialog(this, json.getString("msg"));
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }//GEN-LAST:event_jButton1ActionPerformed
+
+    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
+        // TODO add your handling code here:
+        JFrame registerFrame = new JFrame("注册");
+        registerFrame.setSize(300, 200);
+        registerFrame.setLayout(null);
+
+        JLabel lblUsername = new JLabel("账号：");
+        JTextField tfUsername = new JTextField();
+        JLabel lblPassword = new JLabel("密码：");
+        JPasswordField pfPassword = new JPasswordField();
+        JButton btnRegister = new JButton("注册");
+
+        lblUsername.setBounds(30, 30, 80, 30);
+        tfUsername.setBounds(110, 30, 150, 30);
+        lblPassword.setBounds(30, 70, 80, 30);
+        pfPassword.setBounds(110, 70, 150, 30);
+        btnRegister.setBounds(110, 110, 100, 30);
+
+        btnRegister.addActionListener(e -> {
+            String username = tfUsername.getText();
+            String password = new String(pfPassword.getPassword());
+
+            try {
+                // 发送注册请求到服务器
+                DatagramSocket socket = new DatagramSocket();
+                String request = "{\"type\": \"register\", \"username\": \"" + username + "\", \"password\": \"" + password + "\"}";
+                byte[] data = request.getBytes();
+                InetAddress address = InetAddress.getByName("localhost");
+                DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+                socket.send(packet);
+
+                // 接收响应
+                byte[] buffer = new byte[1024];
+                DatagramPacket response = new DatagramPacket(buffer, buffer.length);
+                socket.receive(response);
+                String result = new String(response.getData(), 0, response.getLength());
+
+                JOptionPane.showMessageDialog(null, result);
+                registerFrame.dispose();
+            } catch (Exception ex) {
+                ex.printStackTrace();
+            }
+        });
+
+        registerFrame.add(lblUsername);
+        registerFrame.add(tfUsername);
+        registerFrame.add(lblPassword);
+        registerFrame.add(pfPassword);
+        registerFrame.add(btnRegister);
+        registerFrame.setVisible(true);
+    }//GEN-LAST:event_jButton2ActionPerformed
 
     /**
      * @param args the command line arguments
@@ -229,10 +316,10 @@ public class LoginFrame extends javax.swing.JFrame {
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
     private javax.swing.JButton jButton1;
+    private javax.swing.JButton jButton2;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
-    private javax.swing.JLabel jLabel4;
     private javax.swing.JPanel jPanel1;
     private javax.swing.JPasswordField jPasswordField1;
     private javax.swing.JTextField jTextField1;

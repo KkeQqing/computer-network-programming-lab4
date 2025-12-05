@@ -4,19 +4,128 @@
  */
 package com.mycompany.computer.network.programming.lab4;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import javax.swing.*;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+
 /**
  *
  * @author KQ
  */
 public class ChatRoomFrame extends javax.swing.JFrame {
+
+
     
     private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(ChatRoomFrame.class.getName());
 
+    private String username;
+
     /**
-     * Creates new form ChatRoomFrame
+     * Creates new form ChatRoomFrame with username
      */
-    public ChatRoomFrame() {
+    public ChatRoomFrame(String username) {
+        this.username = username;
         initComponents();
+        loadRooms();   // 加载房间列表
+        loadUsers();   // 加载用户列表
+
+        // 启动监听线程
+        new Thread(() -> {
+            try (DatagramSocket socket = new DatagramSocket()) {
+                // 绑定到任意端口，用于接收服务器推送
+                byte[] buf = new byte[2048];
+                while (!Thread.currentThread().isInterrupted()) {
+                    DatagramPacket packet = new DatagramPacket(buf, buf.length);
+                    socket.receive(packet);
+                    String msg = new String(packet.getData(), 0, packet.getLength());
+                    JSONObject json = new JSONObject(msg);
+                    String type = json.getString("type");
+
+                    SwingUtilities.invokeLater(() -> {
+                        if ("group_message".equals(type)) {
+                            String room = json.getString("room");
+                            // 检查是否是当前房间（可选）
+                            jTextArea1.append(json.getString("sender") + ": " + json.getString("message") + "\n");
+                        } else if ("private_message".equals(type)) {
+                            jTextArea2.append(json.getString("sender") + ": " + json.getString("message") + "\n");
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    // ===== 加载房间列表 =====
+    private void loadRooms() {
+        try {
+            DatagramSocket socket = new DatagramSocket();
+            String request = "{\"type\": \"get_room_list\"}";
+            byte[] data = request.getBytes();
+            InetAddress address = InetAddress.getByName("localhost");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            socket.send(packet);
+
+            byte[] buffer = new byte[1024];
+            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
+            socket.receive(response);
+            String result = new String(response.getData(), 0, response.getLength());
+
+            JSONObject json = new JSONObject(result);
+            DefaultListModel<String> model = new DefaultListModel<>();
+            JSONArray rooms = json.getJSONArray("rooms");
+            for (int i = 0; i < rooms.length(); i++) {
+                model.addElement(rooms.getString(i));
+            }
+            jList1.setModel(model);
+            socket.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "无法加载房间列表", "错误", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // ===== 加载用户列表=====
+    private void loadUsers() {
+        try {
+            // 动态获取当前选中的房间
+            String selectedRoom = getCurrentRoom() ;
+            DatagramSocket socket = new DatagramSocket();
+            String request = "{\"type\": \"get_user_list\", \"room\": \"" + selectedRoom + "\"}";
+            byte[] data = request.getBytes();
+            InetAddress address = InetAddress.getByName("localhost");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            socket.send(packet);
+
+            byte[] buffer = new byte[1024];
+            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
+            socket.receive(response);
+            String result = new String(response.getData(), 0, response.getLength());
+
+            JSONObject json = new JSONObject(result);
+            DefaultListModel<String> model = new DefaultListModel<>();
+            JSONArray users = json.getJSONArray("users");
+            for (int i = 0; i < users.length(); i++) {
+                model.addElement(users.getString(i));
+            }
+            jList2.setModel(model);
+            socket.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "无法加载用户列表", "错误", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private String getCurrentRoom() {
+        String room = jList1.getSelectedValue();
+        return (room != null) ? room : "room1";
     }
 
     /**
@@ -333,6 +442,25 @@ public class ChatRoomFrame extends javax.swing.JFrame {
 
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
         // TODO add your handling code here:
+        String msg = jTextField1.getText();
+        String room = getCurrentRoom();
+        if (msg.isEmpty()) return;
+
+        try {
+            DatagramSocket socket = new DatagramSocket();
+            String request = "{\"type\": \"send_group_msg\", \"room\": \" + room + \", \"sender\": \"" + username + "\", \"message\": \"" + msg + "\"}";
+            byte[] data = request.getBytes();
+            InetAddress address = InetAddress.getByName("localhost");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            socket.send(packet);
+
+            // 更新聊天框
+            jTextArea1.append(username + ": " + msg + "\n");
+            jTextField1.setText("");
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }//GEN-LAST:event_jButton1ActionPerformed
 
     private void jTextField2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField2ActionPerformed
@@ -341,6 +469,22 @@ public class ChatRoomFrame extends javax.swing.JFrame {
 
     private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
         // TODO add your handling code here:
+        String msg = jTextField2.getText();
+        if (msg.isEmpty()) return;
+
+        try {
+            DatagramSocket socket = new DatagramSocket();
+            String request = "{\"type\": \"send_private_msg\", \"sender\": \"" + username + "\", \"receiver\": \"bob\", \"message\": \"" + msg + "\"}";
+            byte[] data = request.getBytes();
+            InetAddress address = InetAddress.getByName("localhost");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            socket.send(packet);
+
+            jTextArea2.append(username + ": " + msg + "\n");
+            jTextField2.setText("");
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }//GEN-LAST:event_jButton2ActionPerformed
 
     private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
@@ -377,7 +521,6 @@ public class ChatRoomFrame extends javax.swing.JFrame {
         //</editor-fold>
 
         /* Create and display the form */
-        java.awt.EventQueue.invokeLater(() -> new ChatRoomFrame().setVisible(true));
     }
 
     // Variables declaration - do not modify//GEN-BEGIN:variables
