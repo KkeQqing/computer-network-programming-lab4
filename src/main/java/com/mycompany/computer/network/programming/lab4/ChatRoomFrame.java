@@ -30,6 +30,7 @@ public class ChatRoomFrame extends javax.swing.JFrame {
     private Integer currentUserId;  // 当前登录用户ID
     private Integer selectedRoomId = null; // 当前选中的聊天室ID
     private Integer selectedPrivateUserId = null; // 当前私聊对象ID
+    private javax.swing.Timer autoRefreshTimer; // 自动刷新定时器
 
     /**
      * Creates new form ChatRoomFrame
@@ -46,18 +47,26 @@ public class ChatRoomFrame extends javax.swing.JFrame {
             System.exit(0);
         }
         initComponents();
+
         jButton1.addActionListener(this::jButton1ActionPerformed);
         jButton2.addActionListener(this::jButton2ActionPerformed);
         jButton3.addActionListener(this::jButton3ActionPerformed);
         jButton4.addActionListener(this::jButton4ActionPerformed);
         jButton7.addActionListener(this::jButton7ActionPerformed);
+
         loadInitialData();
+
+        startAutoRefresh();
     }
 
     // 初始化数据
     private void loadInitialData() {
-        refreshRoomList();
-        refreshUserList();
+        setupRoomListListener();
+        setupUserListListener();
+
+        // 加载初始数据
+        refreshRoomListWithoutListener();
+        refreshUserListWithoutListener();
         updateRoomLabel();
         updatePrivateUserLabel();
     }
@@ -165,6 +174,92 @@ public class ChatRoomFrame extends javax.swing.JFrame {
     private void updateRoomLabel() {
         String roomName = jList1.getSelectedValue();
         jLabel4.setText("所在房间：" + (roomName != null ? roomName : "未选择"));
+    }
+
+    // 启动自动刷新
+    private void startAutoRefresh() {
+        autoRefreshTimer = new javax.swing.Timer(2000, e -> {
+            // 刷新房间列表（如果当前没选中房间，可能不需要重载消息）
+            refreshRoomListWithoutListener(); // 避免重复添加监听器
+            refreshUserListWithoutListener(); // 同理
+
+            // 如果已选择房间，刷新群聊消息
+            if (selectedRoomId != null) {
+                loadGroupMessages();
+            }
+
+            // 如果已选择私聊对象，刷新私聊消息
+            if (selectedPrivateUserId != null) {
+                loadPrivateMessages();
+            }
+        });
+        autoRefreshTimer.start();
+    }
+
+    // 停止自动刷新
+    private void stopAutoRefresh() {
+        if (autoRefreshTimer != null && autoRefreshTimer.isRunning()) {
+            autoRefreshTimer.stop();
+        }
+    }
+
+    // 刷新房间列表（不添加监听器）
+    private void refreshRoomListWithoutListener() {
+        List<ChatRoom> rooms = new ChatRoomDAO().findAll();
+        DefaultListModel<String> model = new DefaultListModel<>();
+        for (ChatRoom room : rooms) {
+            model.addElement(room.getName());
+        }
+        jList1.setModel(model); // 替换模型，原有监听器仍然有效
+    }
+
+    // 刷新用户列表（不添加监听器）
+    private void refreshUserListWithoutListener() {
+        List<User> users = new UserDAO().findAll();
+        DefaultListModel<String> model = new DefaultListModel<>();
+        for (User u : users) {
+            model.addElement(u.getUsername() + " (" + u.getStatus() + ")");
+        }
+        jList2.setModel(model);
+    }
+
+    // 设置房间列表监听器
+    private void setupRoomListListener() {
+        jList1.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                String selectedName = jList1.getSelectedValue();
+                if (selectedName != null) {
+                    ChatRoom room = new ChatRoomDAO().findByName(selectedName);
+                    if (room != null) {
+                        selectedRoomId = room.getId();
+                        updateRoomLabel();
+                        loadGroupMessages();
+                    }
+                }
+            }
+        });
+    }
+
+    // 设置用户列表监听器
+    private void setupUserListListener() {
+        jList2.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                String val = jList2.getSelectedValue();
+                if (val != null) {
+                    String username = val.split(" ")[0];
+                    User user = new UserDAO().findByUsername(username);
+                    if (user != null && !user.getId().equals(currentUserId)) {
+                        selectedPrivateUserId = user.getId();
+                        updatePrivateUserLabel();
+                        loadPrivateMessages();
+                    } else {
+                        selectedPrivateUserId = null;
+                        jLabel5.setText("私聊用户：");
+                        jTextArea2.setText("不能与自己私聊");
+                    }
+                }
+            }
+        });
     }
 
     /**
