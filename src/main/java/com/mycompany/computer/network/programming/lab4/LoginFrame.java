@@ -10,6 +10,7 @@ import javax.swing.*;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
 
 /**
  *
@@ -211,29 +212,45 @@ public class LoginFrame extends javax.swing.JFrame {
         String username = jTextField1.getText();
         String password = new String(jPasswordField1.getPassword());
 
-        try {
-            DatagramSocket socket = new DatagramSocket();
-            String request = "{\"type\": \"login\", \"username\": \"" + username + "\", \"password\": \"" + password + "\"}";
-            byte[] data = request.getBytes();
-            InetAddress address = InetAddress.getByName("localhost");
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+        // 检查输入是否为空
+        if (username.trim().isEmpty() || password.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "账号或密码不能为空！");
+            return;
+        }
+
+        try (DatagramSocket socket = new DatagramSocket()) {
+            // 构造 JSON 请求（使用 Gson）
+            com.google.gson.JsonObject req = new com.google.gson.JsonObject();
+            req.addProperty("action", "login");
+            req.addProperty("username", username);
+            req.addProperty("password", password);
+
+            // 转为字节数组
+            byte[] data = new com.google.gson.Gson().toJson(req).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            InetAddress address = InetAddress.getByName("127.0.0.1");
+            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9999);
             socket.send(packet);
 
-            byte[] buffer = new byte[1024];
+            // 接收响应
+            byte[] buffer = new byte[65536];
             DatagramPacket response = new DatagramPacket(buffer, buffer.length);
             socket.receive(response);
-            String result = new String(response.getData(), 0, response.getLength());
 
-            JSONObject json = new JSONObject(result);
-            if ("success".equals(json.getString("status"))) {
-                dispose(); // 关闭登录窗口
-                new ChatRoomFrame(username).setVisible(true); // 传入用户名
+            String respStr = new String(response.getData(), 0, response.getLength(), StandardCharsets.UTF_8);
+            com.google.gson.JsonObject resp = com.google.gson.JsonParser.parseString(respStr).getAsJsonObject();
+
+            if (resp.has("success") && resp.get("success").getAsBoolean()) {
+                int userId = resp.get("userId").getAsInt(); // 可选：后续可用
+                this.dispose();
+                new ChatRoomFrame(username).setVisible(true);
             } else {
-                JOptionPane.showMessageDialog(this, json.getString("msg"));
+                String msg = resp.has("message") ? resp.get("message").getAsString() : "登录失败";
+                JOptionPane.showMessageDialog(this, msg);
             }
 
         } catch (Exception e) {
             e.printStackTrace();
+            JOptionPane.showMessageDialog(this, "网络错误：无法连接到服务器");
         }
     }//GEN-LAST:event_jButton1ActionPerformed
 

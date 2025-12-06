@@ -4,128 +4,167 @@
  */
 package com.mycompany.computer.network.programming.lab4;
 
-import org.json.JSONArray;
-import org.json.JSONObject;
+import dao.*;
+import model.ChatRoom;
+import model.GroupMessage;
+import model.PrivateMessage;
+import model.User;
+import utils.DBUtil;
 
 import javax.swing.*;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.List;
+import java.util.Objects;
 
 /**
  *
  * @author KQ
  */
 public class ChatRoomFrame extends javax.swing.JFrame {
-
-
     
     private static final java.util.logging.Logger logger = java.util.logging.Logger.getLogger(ChatRoomFrame.class.getName());
 
-    private String username;
+    private String currentUsername; // 当前登录用户名
+    private Integer currentUserId;  // 当前登录用户ID
+    private Integer selectedRoomId = null; // 当前选中的聊天室ID
+    private Integer selectedPrivateUserId = null; // 当前私聊对象ID
 
     /**
-     * Creates new form ChatRoomFrame with username
+     * Creates new form ChatRoomFrame
      */
     public ChatRoomFrame(String username) {
-        this.username = username;
+        this.currentUsername = username;
+        User user = new UserDAO().findByUsername(username);
+        if (user != null) {
+            this.currentUserId = user.getId();
+            // 设置用户为 online
+            new UserDAO().updateStatus(currentUserId, "online");
+        } else {
+            JOptionPane.showMessageDialog(this, "用户不存在！");
+            System.exit(0);
+        }
         initComponents();
-        loadRooms();   // 加载房间列表
-        loadUsers();   // 加载用户列表
+        jButton1.addActionListener(this::jButton1ActionPerformed);
+        jButton2.addActionListener(this::jButton2ActionPerformed);
+        jButton3.addActionListener(this::jButton3ActionPerformed);
+        jButton4.addActionListener(this::jButton4ActionPerformed);
+        jButton7.addActionListener(this::jButton7ActionPerformed);
+        loadInitialData();
+    }
 
-        // 启动监听线程
-        new Thread(() -> {
-            try (DatagramSocket socket = new DatagramSocket()) {
-                // 绑定到任意端口，用于接收服务器推送
-                byte[] buf = new byte[2048];
-                while (!Thread.currentThread().isInterrupted()) {
-                    DatagramPacket packet = new DatagramPacket(buf, buf.length);
-                    socket.receive(packet);
-                    String msg = new String(packet.getData(), 0, packet.getLength());
-                    JSONObject json = new JSONObject(msg);
-                    String type = json.getString("type");
+    // 初始化数据
+    private void loadInitialData() {
+        refreshRoomList();
+        refreshUserList();
+        updateRoomLabel();
+        updatePrivateUserLabel();
+    }
 
-                    SwingUtilities.invokeLater(() -> {
-                        if ("group_message".equals(type)) {
-                            String room = json.getString("room");
-                            // 检查是否是当前房间（可选）
-                            jTextArea1.append(json.getString("sender") + ": " + json.getString("message") + "\n");
-                        } else if ("private_message".equals(type)) {
-                            jTextArea2.append(json.getString("sender") + ": " + json.getString("message") + "\n");
-                        }
-                    });
+    // 刷新房间列表
+    private void refreshRoomList() {
+        List<ChatRoom> rooms = new ChatRoomDAO().findAll();
+        DefaultListModel<String> model = new DefaultListModel<>();
+        for (ChatRoom room : rooms) {
+            model.addElement(room.getName()); // 显示名称
+        }
+        jList1.setModel(model);
+        jList1.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                String selectedName = jList1.getSelectedValue();
+                if (selectedName != null) {
+                    ChatRoom room = new ChatRoomDAO().findByName(selectedName);
+                    if (room != null) {
+                        selectedRoomId = room.getId();
+                        updateRoomLabel();
+                        loadGroupMessages();
+                    }
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
             }
-        }).start();
+        });
     }
 
-    // ===== 加载房间列表 =====
-    private void loadRooms() {
-        try {
-            DatagramSocket socket = new DatagramSocket();
-            String request = "{\"type\": \"get_room_list\"}";
-            byte[] data = request.getBytes();
-            InetAddress address = InetAddress.getByName("localhost");
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
-            socket.send(packet);
+    // 刷新群聊消息
+    private void loadGroupMessages() {
+        if (selectedRoomId == null) {
+            jTextArea1.setText("请先选择一个聊天室");
+            return;
+        }
+        List<GroupMessage> messages = new GroupMessageDAO().findByRoomId(selectedRoomId);
+        StringBuilder sb = new StringBuilder();
+        for (GroupMessage msg : messages) {
+            User sender = new UserDAO().findById(msg.getSenderId());
+            String senderName = sender != null ? sender.getUsername() : "未知";
+            sb.append("[").append(msg.getSentAt()).append("] ")
+                    .append(senderName).append(": ")
+                    .append(msg.getMessage()).append("\n");
+        }
+        jTextArea1.setText(sb.toString());
+        jTextArea1.setCaretPosition(jTextArea1.getDocument().getLength()); // 滚动到底部
+    }
 
-            byte[] buffer = new byte[1024];
-            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
-            socket.receive(response);
-            String result = new String(response.getData(), 0, response.getLength());
-
-            JSONObject json = new JSONObject(result);
-            DefaultListModel<String> model = new DefaultListModel<>();
-            JSONArray rooms = json.getJSONArray("rooms");
-            for (int i = 0; i < rooms.length(); i++) {
-                model.addElement(rooms.getString(i));
+    // 刷新用户列表
+    private void refreshUserList() {
+        List<User> users = new UserDAO().findAll();
+        DefaultListModel<String> model = new DefaultListModel<>();
+        for (User u : users) {
+            model.addElement(u.getUsername() + " (" + u.getStatus() + ")");
+        }
+        jList2.setModel(model);
+        jList2.addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                String val = jList2.getSelectedValue();
+                if (val != null) {
+                    String username = val.split(" ")[0];
+                    User user = new UserDAO().findByUsername(username);
+                    if (user != null && !user.getId().equals(currentUserId)) {
+                        selectedPrivateUserId = user.getId();
+                        updatePrivateUserLabel();
+                        loadPrivateMessages();
+                    } else {
+                        selectedPrivateUserId = null;
+                        jLabel5.setText("私聊用户：");
+                        jTextArea2.setText("不能与自己私聊");
+                    }
+                }
             }
-            jList1.setModel(model);
-            socket.close();
+        });
+    }
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "无法加载房间列表", "错误", JOptionPane.ERROR_MESSAGE);
+    // 更新私聊标签
+    private void updatePrivateUserLabel() {
+        if (selectedPrivateUserId != null) {
+            User u = new UserDAO().findById(selectedPrivateUserId);
+            jLabel5.setText("私聊用户：" + (u != null ? u.getUsername() : "未知"));
+        } else {
+            jLabel5.setText("私聊用户：");
         }
     }
 
-    // ===== 加载用户列表=====
-    private void loadUsers() {
-        try {
-            // 动态获取当前选中的房间
-            String selectedRoom = getCurrentRoom() ;
-            DatagramSocket socket = new DatagramSocket();
-            String request = "{\"type\": \"get_user_list\", \"room\": \"" + selectedRoom + "\"}";
-            byte[] data = request.getBytes();
-            InetAddress address = InetAddress.getByName("localhost");
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
-            socket.send(packet);
-
-            byte[] buffer = new byte[1024];
-            DatagramPacket response = new DatagramPacket(buffer, buffer.length);
-            socket.receive(response);
-            String result = new String(response.getData(), 0, response.getLength());
-
-            JSONObject json = new JSONObject(result);
-            DefaultListModel<String> model = new DefaultListModel<>();
-            JSONArray users = json.getJSONArray("users");
-            for (int i = 0; i < users.length(); i++) {
-                model.addElement(users.getString(i));
-            }
-            jList2.setModel(model);
-            socket.close();
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            JOptionPane.showMessageDialog(this, "无法加载用户列表", "错误", JOptionPane.ERROR_MESSAGE);
+    // 刷新私聊消息
+    private void loadPrivateMessages() {
+        if (selectedPrivateUserId == null) {
+            jTextArea2.setText("请选择一个私聊对象");
+            return;
         }
+        List<PrivateMessage> msgs = new PrivateMessageDAO().findConversation(currentUserId, selectedPrivateUserId);
+        StringBuilder sb = new StringBuilder();
+        for (PrivateMessage msg : msgs) {
+            String senderName = msg.getSenderId().equals(currentUserId) ? "我" :
+                    new UserDAO().findById(msg.getSenderId()).getUsername();
+            sb.append("[").append(msg.getSentAt()).append("] ")
+                    .append(senderName).append(": ")
+                    .append(msg.getMessage()).append("\n");
+        }
+        jTextArea2.setText(sb.toString());
+        jTextArea2.setCaretPosition(jTextArea2.getDocument().getLength());
     }
 
-    private String getCurrentRoom() {
-        String room = jList1.getSelectedValue();
-        return (room != null) ? room : "room1";
+    // 更新房间标签
+    private void updateRoomLabel() {
+        String roomName = jList1.getSelectedValue();
+        jLabel4.setText("所在房间：" + (roomName != null ? roomName : "未选择"));
     }
 
     /**
@@ -137,176 +176,153 @@ public class ChatRoomFrame extends javax.swing.JFrame {
     // <editor-fold defaultstate="collapsed" desc="Generated Code">//GEN-BEGIN:initComponents
     private void initComponents() {
 
-        jLabel1 = new javax.swing.JLabel();
         jPanel1 = new javax.swing.JPanel();
-        jPanel2 = new javax.swing.JPanel();
-        jLabel2 = new javax.swing.JLabel();
-        jScrollPane3 = new javax.swing.JScrollPane();
-        jList1 = new javax.swing.JList<>();
-        jButton3 = new javax.swing.JButton();
-        jButton4 = new javax.swing.JButton();
-        jButton5 = new javax.swing.JButton();
+        jPanel3 = new javax.swing.JPanel();
         jScrollPane1 = new javax.swing.JScrollPane();
+        jList1 = new javax.swing.JList<>();
+        jLabel1 = new javax.swing.JLabel();
+        jButton2 = new javax.swing.JButton();
+        jButton3 = new javax.swing.JButton();
+        jScrollPane2 = new javax.swing.JScrollPane();
         jTextArea1 = new javax.swing.JTextArea();
         jTextField1 = new javax.swing.JTextField();
-        jButton1 = new javax.swing.JButton();
+        jButton4 = new javax.swing.JButton();
         jLabel4 = new javax.swing.JLabel();
-        jPanel3 = new javax.swing.JPanel();
+        jButton1 = new javax.swing.JButton();
+        jPanel2 = new javax.swing.JPanel();
         jPanel4 = new javax.swing.JPanel();
+        jScrollPane3 = new javax.swing.JScrollPane();
+        jList2 = new javax.swing.JList<>();
         jLabel3 = new javax.swing.JLabel();
         jScrollPane4 = new javax.swing.JScrollPane();
-        jList2 = new javax.swing.JList<>();
-        jLabel5 = new javax.swing.JLabel();
-        jScrollPane2 = new javax.swing.JScrollPane();
         jTextArea2 = new javax.swing.JTextArea();
-        jButton2 = new javax.swing.JButton();
         jTextField2 = new javax.swing.JTextField();
-        jButton6 = new javax.swing.JButton();
+        jButton7 = new javax.swing.JButton();
+        jLabel5 = new javax.swing.JLabel();
+        jLabel2 = new javax.swing.JLabel();
 
         setDefaultCloseOperation(javax.swing.WindowConstants.EXIT_ON_CLOSE);
-        setTitle("chat");
-
-        jLabel1.setBackground(new java.awt.Color(0, 204, 255));
-        jLabel1.setFont(new java.awt.Font("楷体", 0, 18)); // NOI18N
-        jLabel1.setText("聊天室");
 
         jPanel1.setBackground(new java.awt.Color(153, 153, 153));
 
-        jLabel2.setText("聊天室列表：");
+        jScrollPane1.setViewportView(jList1);
 
-        jList1.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "room 1", "room 2", "room 3" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane3.setViewportView(jList1);
+        jLabel1.setText("房间列表：");
 
-        jButton3.setBackground(new java.awt.Color(0, 255, 255));
-        jButton3.setText("创建");
-
-        jButton4.setBackground(new java.awt.Color(51, 255, 255));
-        jButton4.setText("加入");
-        jButton4.addActionListener(new java.awt.event.ActionListener() {
+        jButton2.setText("创建");
+        jButton2.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton4ActionPerformed(evt);
+                jButton2ActionPerformed(evt);
             }
         });
 
-        jButton5.setBackground(new java.awt.Color(255, 0, 0));
-        jButton5.setForeground(new java.awt.Color(255, 255, 255));
-        jButton5.setText("删除");
-        jButton5.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton5ActionPerformed(evt);
-            }
-        });
+        jButton3.setText("删除");
 
-        javax.swing.GroupLayout jPanel2Layout = new javax.swing.GroupLayout(jPanel2);
-        jPanel2.setLayout(jPanel2Layout);
-        jPanel2Layout.setHorizontalGroup(
-            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel2Layout.createSequentialGroup()
+        javax.swing.GroupLayout jPanel3Layout = new javax.swing.GroupLayout(jPanel3);
+        jPanel3.setLayout(jPanel3Layout);
+        jPanel3Layout.setHorizontalGroup(
+            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel3Layout.createSequentialGroup()
                 .addContainerGap()
-                .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jLabel2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                    .addGroup(jPanel2Layout.createSequentialGroup()
-                        .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                            .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 79, javax.swing.GroupLayout.PREFERRED_SIZE)
-                            .addComponent(jButton3, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                            .addComponent(jButton4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                            .addComponent(jButton5, javax.swing.GroupLayout.DEFAULT_SIZE, 88, Short.MAX_VALUE))
-                        .addGap(0, 8, Short.MAX_VALUE)))
-                .addContainerGap())
+                .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                        .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
+                        .addComponent(jLabel1, javax.swing.GroupLayout.DEFAULT_SIZE, 86, Short.MAX_VALUE))
+                    .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addComponent(jButton3, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
-        jPanel2Layout.setVerticalGroup(
-            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel2Layout.createSequentialGroup()
+        jPanel3Layout.setVerticalGroup(
+            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel3Layout.createSequentialGroup()
                 .addContainerGap()
-                .addComponent(jLabel2)
+                .addComponent(jLabel1)
+                .addGap(3, 3, 3)
+                .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 114, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 93, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addComponent(jButton2)
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
                 .addComponent(jButton3)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jButton4)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jButton5)
-                .addContainerGap(7, Short.MAX_VALUE))
+                .addContainerGap(15, Short.MAX_VALUE))
         );
 
         jTextArea1.setColumns(20);
         jTextArea1.setRows(5);
-        jScrollPane1.setViewportView(jTextArea1);
+        jScrollPane2.setViewportView(jTextArea1);
 
+        jTextField1.setText("jTextField1");
         jTextField1.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 jTextField1ActionPerformed(evt);
             }
         });
 
-        jButton1.setBackground(new java.awt.Color(0, 204, 204));
-        jButton1.setText("发送");
-        jButton1.setBorder(javax.swing.BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED));
-        jButton1.addActionListener(new java.awt.event.ActionListener() {
+        jButton4.setText("发送");
+        jButton4.setToolTipText("");
+        jButton4.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton1ActionPerformed(evt);
+                jButton4ActionPerformed(evt);
             }
         });
 
-        jLabel4.setBackground(new java.awt.Color(255, 255, 255));
-        jLabel4.setFont(new java.awt.Font("Microsoft YaHei UI", 1, 14)); // NOI18N
+        jLabel4.setFont(new java.awt.Font("Microsoft YaHei UI", 0, 18)); // NOI18N
         jLabel4.setForeground(new java.awt.Color(255, 255, 255));
-        jLabel4.setText("当前房间：");
+        jLabel4.setText("所在房间：");
 
         javax.swing.GroupLayout jPanel1Layout = new javax.swing.GroupLayout(jPanel1);
         jPanel1.setLayout(jPanel1Layout);
         jPanel1Layout.setHorizontalGroup(
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel1Layout.createSequentialGroup()
-                .addGap(17, 17, 17)
-                .addComponent(jPanel2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addContainerGap()
+                .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(jPanel1Layout.createSequentialGroup()
-                        .addGap(26, 26, 26)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
                         .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                            .addComponent(jScrollPane1, javax.swing.GroupLayout.PREFERRED_SIZE, 375, javax.swing.GroupLayout.PREFERRED_SIZE)
                             .addGroup(jPanel1Layout.createSequentialGroup()
-                                .addComponent(jTextField1, javax.swing.GroupLayout.PREFERRED_SIZE, 284, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                                .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE))))
+                                .addGap(397, 397, 397)
+                                .addComponent(jButton4))
+                            .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 469, javax.swing.GroupLayout.PREFERRED_SIZE)
+                            .addComponent(jTextField1, javax.swing.GroupLayout.PREFERRED_SIZE, 385, javax.swing.GroupLayout.PREFERRED_SIZE)))
                     .addGroup(jPanel1Layout.createSequentialGroup()
-                        .addGap(105, 105, 105)
-                        .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE)))
-                .addContainerGap(39, Short.MAX_VALUE))
+                        .addGap(113, 113, 113)
+                        .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 232, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         jPanel1Layout.setVerticalGroup(
             jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel1Layout.createSequentialGroup()
-                .addContainerGap()
+                .addGap(14, 14, 14)
                 .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
                     .addGroup(jPanel1Layout.createSequentialGroup()
-                        .addGap(3, 3, 3)
-                        .addComponent(jLabel4)
+                        .addComponent(jLabel4, javax.swing.GroupLayout.PREFERRED_SIZE, 22, javax.swing.GroupLayout.PREFERRED_SIZE)
                         .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(jScrollPane1)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                        .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
-                            .addComponent(jTextField1, javax.swing.GroupLayout.DEFAULT_SIZE, 46, Short.MAX_VALUE)
-                            .addComponent(jButton1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)))
-                    .addComponent(jPanel2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-                .addGap(14, 14, 14))
+                        .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 144, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addGroup(jPanel1Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                            .addGroup(jPanel1Layout.createSequentialGroup()
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addComponent(jButton4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                            .addGroup(jPanel1Layout.createSequentialGroup()
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                                .addComponent(jTextField1, javax.swing.GroupLayout.PREFERRED_SIZE, 31, javax.swing.GroupLayout.PREFERRED_SIZE))))
+                    .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addContainerGap(15, Short.MAX_VALUE))
         );
 
-        jPanel3.setBackground(new java.awt.Color(153, 153, 153));
+        jButton1.setForeground(new java.awt.Color(255, 0, 51));
+        jButton1.setText("账号注销");
+        jButton1.addActionListener(new java.awt.event.ActionListener() {
+            public void actionPerformed(java.awt.event.ActionEvent evt) {
+                jButton1ActionPerformed(evt);
+            }
+        });
+
+        jPanel2.setBackground(new java.awt.Color(153, 153, 153));
+
+        jScrollPane3.setViewportView(jList2);
 
         jLabel3.setText("用户列表：");
-
-        jList2.setModel(new javax.swing.AbstractListModel<String>() {
-            String[] strings = { "user 1", "user 2" };
-            public int getSize() { return strings.length; }
-            public String getElementAt(int i) { return strings[i]; }
-        });
-        jScrollPane4.setViewportView(jList2);
 
         javax.swing.GroupLayout jPanel4Layout = new javax.swing.GroupLayout(jPanel4);
         jPanel4.setLayout(jPanel4Layout);
@@ -314,9 +330,9 @@ public class ChatRoomFrame extends javax.swing.JFrame {
             jPanel4Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(jPanel4Layout.createSequentialGroup()
                 .addContainerGap()
-                .addGroup(jPanel4Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jLabel3, javax.swing.GroupLayout.PREFERRED_SIZE, 98, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(jScrollPane4, javax.swing.GroupLayout.PREFERRED_SIZE, 88, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGroup(jPanel4Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                    .addComponent(jScrollPane3, javax.swing.GroupLayout.PREFERRED_SIZE, 0, Short.MAX_VALUE)
+                    .addComponent(jLabel3, javax.swing.GroupLayout.DEFAULT_SIZE, 86, Short.MAX_VALUE))
                 .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
         );
         jPanel4Layout.setVerticalGroup(
@@ -324,117 +340,191 @@ public class ChatRoomFrame extends javax.swing.JFrame {
             .addGroup(jPanel4Layout.createSequentialGroup()
                 .addContainerGap()
                 .addComponent(jLabel3)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                .addComponent(jScrollPane4, javax.swing.GroupLayout.PREFERRED_SIZE, 179, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addContainerGap(17, Short.MAX_VALUE))
-        );
-
-        jLabel5.setBackground(new java.awt.Color(255, 255, 255));
-        jLabel5.setFont(new java.awt.Font("Microsoft YaHei UI", 1, 14)); // NOI18N
-        jLabel5.setForeground(new java.awt.Color(255, 255, 255));
-        jLabel5.setText("当前用户：");
-
-        jTextArea2.setColumns(20);
-        jTextArea2.setRows(5);
-        jScrollPane2.setViewportView(jTextArea2);
-
-        jButton2.setBackground(new java.awt.Color(0, 204, 204));
-        jButton2.setText("发送");
-        jButton2.setBorder(javax.swing.BorderFactory.createBevelBorder(javax.swing.border.BevelBorder.RAISED));
-        jButton2.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton2ActionPerformed(evt);
-            }
-        });
-
-        jTextField2.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jTextField2ActionPerformed(evt);
-            }
-        });
-
-        javax.swing.GroupLayout jPanel3Layout = new javax.swing.GroupLayout(jPanel3);
-        jPanel3.setLayout(jPanel3Layout);
-        jPanel3Layout.setHorizontalGroup(
-            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel3Layout.createSequentialGroup()
-                .addGap(15, 15, 15)
-                .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(jPanel3Layout.createSequentialGroup()
-                        .addGap(103, 103, 103)
-                        .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 151, javax.swing.GroupLayout.PREFERRED_SIZE))
-                    .addGroup(jPanel3Layout.createSequentialGroup()
-                        .addGap(18, 18, 18)
-                        .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                            .addComponent(jScrollPane2, javax.swing.GroupLayout.PREFERRED_SIZE, 375, javax.swing.GroupLayout.PREFERRED_SIZE)
-                            .addGroup(jPanel3Layout.createSequentialGroup()
-                                .addComponent(jTextField2, javax.swing.GroupLayout.PREFERRED_SIZE, 284, javax.swing.GroupLayout.PREFERRED_SIZE)
-                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                                .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE)))))
-                .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
-        );
-        jPanel3Layout.setVerticalGroup(
-            jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(jPanel3Layout.createSequentialGroup()
-                .addContainerGap()
-                .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addGroup(jPanel3Layout.createSequentialGroup()
-                        .addComponent(jLabel5)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
-                        .addComponent(jScrollPane2)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
-                        .addGroup(jPanel3Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.BASELINE)
-                            .addComponent(jButton2, javax.swing.GroupLayout.PREFERRED_SIZE, 36, javax.swing.GroupLayout.PREFERRED_SIZE)
-                            .addComponent(jTextField2, javax.swing.GroupLayout.PREFERRED_SIZE, 34, javax.swing.GroupLayout.PREFERRED_SIZE))
-                        .addGap(11, 11, 11))
-                    .addComponent(jPanel4, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))
+                .addGap(3, 3, 3)
+                .addComponent(jScrollPane3, javax.swing.GroupLayout.DEFAULT_SIZE, 187, Short.MAX_VALUE)
                 .addContainerGap())
         );
 
-        jButton6.setForeground(new java.awt.Color(204, 0, 51));
-        jButton6.setText("账号注销");
-        jButton6.setBorder(null);
-        jButton6.addActionListener(new java.awt.event.ActionListener() {
-            public void actionPerformed(java.awt.event.ActionEvent evt) {
-                jButton6ActionPerformed(evt);
-            }
-        });
+        jTextArea2.setColumns(20);
+        jTextArea2.setRows(5);
+        jScrollPane4.setViewportView(jTextArea2);
+
+        jTextField2.setText("jTextField2");
+
+        jButton7.setText("发送");
+
+        jLabel5.setFont(new java.awt.Font("Microsoft YaHei UI", 0, 18)); // NOI18N
+        jLabel5.setForeground(new java.awt.Color(255, 255, 255));
+        jLabel5.setText("私聊用户：");
+
+        javax.swing.GroupLayout jPanel2Layout = new javax.swing.GroupLayout(jPanel2);
+        jPanel2.setLayout(jPanel2Layout);
+        jPanel2Layout.setHorizontalGroup(
+            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel2Layout.createSequentialGroup()
+                .addContainerGap()
+                .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addGroup(jPanel2Layout.createSequentialGroup()
+                        .addGap(18, 18, 18)
+                        .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                            .addGroup(jPanel2Layout.createSequentialGroup()
+                                .addComponent(jTextField2, javax.swing.GroupLayout.PREFERRED_SIZE, 373, javax.swing.GroupLayout.PREFERRED_SIZE)
+                                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                                .addComponent(jButton7, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE))
+                            .addComponent(jScrollPane4, javax.swing.GroupLayout.PREFERRED_SIZE, 463, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                    .addGroup(jPanel2Layout.createSequentialGroup()
+                        .addGap(119, 119, 119)
+                        .addComponent(jLabel5, javax.swing.GroupLayout.PREFERRED_SIZE, 249, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                .addContainerGap(33, Short.MAX_VALUE))
+        );
+        jPanel2Layout.setVerticalGroup(
+            jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+            .addGroup(jPanel2Layout.createSequentialGroup()
+                .addGap(16, 16, 16)
+                .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addComponent(jPanel4, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                    .addGroup(jPanel2Layout.createSequentialGroup()
+                        .addGap(1, 1, 1)
+                        .addComponent(jLabel5)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
+                        .addComponent(jScrollPane4, javax.swing.GroupLayout.PREFERRED_SIZE, 147, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                        .addGroup(jPanel2Layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING, false)
+                            .addComponent(jTextField2, javax.swing.GroupLayout.DEFAULT_SIZE, 29, Short.MAX_VALUE)
+                            .addComponent(jButton7, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))))
+                .addContainerGap(14, Short.MAX_VALUE))
+        );
+
+        jLabel2.setFont(new java.awt.Font("Microsoft YaHei UI", 0, 24)); // NOI18N
+        jLabel2.setText("聊天室");
 
         javax.swing.GroupLayout layout = new javax.swing.GroupLayout(getContentPane());
         getContentPane().setLayout(layout);
         layout.setHorizontalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-            .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
-                    .addGroup(layout.createSequentialGroup()
-                        .addGap(259, 259, 259)
-                        .addComponent(jLabel1)
-                        .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                        .addComponent(jButton6, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE))
-                    .addGroup(layout.createSequentialGroup()
-                        .addContainerGap(javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                        .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING, false)
-                            .addComponent(jPanel3, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                            .addComponent(jPanel1, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE))))
-                .addGap(16, 16, 16))
+            .addGroup(layout.createSequentialGroup()
+                .addContainerGap()
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
+                    .addComponent(jPanel2, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addComponent(jPanel1, javax.swing.GroupLayout.Alignment.TRAILING, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
+                    .addGroup(javax.swing.GroupLayout.Alignment.TRAILING, layout.createSequentialGroup()
+                        .addGap(0, 0, Short.MAX_VALUE)
+                        .addComponent(jLabel2, javax.swing.GroupLayout.PREFERRED_SIZE, 87, javax.swing.GroupLayout.PREFERRED_SIZE)
+                        .addGap(197, 197, 197)
+                        .addComponent(jButton1, javax.swing.GroupLayout.PREFERRED_SIZE, 78, javax.swing.GroupLayout.PREFERRED_SIZE)))
+                .addGap(23, 23, 23))
         );
         layout.setVerticalGroup(
             layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
             .addGroup(layout.createSequentialGroup()
-                .addContainerGap()
-                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.LEADING)
-                    .addComponent(jLabel1, javax.swing.GroupLayout.PREFERRED_SIZE, 41, javax.swing.GroupLayout.PREFERRED_SIZE)
-                    .addComponent(jButton6, javax.swing.GroupLayout.PREFERRED_SIZE, 35, javax.swing.GroupLayout.PREFERRED_SIZE))
+                .addGroup(layout.createParallelGroup(javax.swing.GroupLayout.Alignment.TRAILING)
+                    .addComponent(jButton1)
+                    .addComponent(jLabel2, javax.swing.GroupLayout.PREFERRED_SIZE, 32, javax.swing.GroupLayout.PREFERRED_SIZE))
                 .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED)
                 .addComponent(jPanel1, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.RELATED, javax.swing.GroupLayout.DEFAULT_SIZE, Short.MAX_VALUE)
-                .addComponent(jPanel3, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
-                .addContainerGap())
+                .addPreferredGap(javax.swing.LayoutStyle.ComponentPlacement.UNRELATED)
+                .addComponent(jPanel2, javax.swing.GroupLayout.PREFERRED_SIZE, javax.swing.GroupLayout.DEFAULT_SIZE, javax.swing.GroupLayout.PREFERRED_SIZE)
+                .addContainerGap(59, Short.MAX_VALUE))
         );
 
         pack();
     }// </editor-fold>//GEN-END:initComponents
+
+    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
+        // TODO add your handling code here:
+        String name = JOptionPane.showInputDialog(this, "请输入聊天室名称：");
+        if (name != null && !name.trim().isEmpty()) {
+            if (new ChatRoomDAO().findByName(name) != null) {
+                JOptionPane.showMessageDialog(this, "聊天室名称已存在！");
+                return;
+            }
+            boolean success = new ChatRoomDAO().insert(name, currentUserId);
+            if (success) {
+                // 自动加入该房间
+                ChatRoom room = new ChatRoomDAO().findByName(name);
+                new RoomMemberDAO().addMember(room.getId(), currentUserId);
+                refreshRoomList();
+                JOptionPane.showMessageDialog(this, "聊天室创建成功！");
+            } else {
+                JOptionPane.showMessageDialog(this, "创建失败！");
+            }
+        }
+    }//GEN-LAST:event_jButton2ActionPerformed
+
+    private void jButton3ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
+        // TODO add your handling code here:
+        String selectedName = jList1.getSelectedValue();
+        if (selectedName == null) {
+            JOptionPane.showMessageDialog(this, "请先选择一个聊天室！");
+            return;
+        }
+
+        ChatRoom room = new ChatRoomDAO().findByName(selectedName);
+        if (room == null) return;
+
+        // 检查是否是创建者
+        if (!Objects.equals(room.getCreatorId(), currentUserId)) {
+            JOptionPane.showMessageDialog(this, "只有创建者才能删除该聊天室！");
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "确定删除聊天室 [" + selectedName + "]？所有消息和成员将被清除！",
+                "确认删除", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            // 删除聊天室（ON DELETE CASCADE 会自动删 messages 和 members）
+            try (Connection conn = DBUtil.getConnection();
+                 PreparedStatement stmt = conn.prepareStatement("DELETE FROM chat_rooms WHERE id = ?")) {
+                stmt.setInt(1, room.getId());
+                if (stmt.executeUpdate() > 0) {
+                    selectedRoomId = null;
+                    refreshRoomList();
+                    jTextArea1.setText("");
+                    jLabel4.setText("所在房间：");
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(this, "删除失败：" + e.getMessage());
+            }
+        }
+    }//GEN-LAST:event_jButton4ActionPerformed
+
+    private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
+        // TODO add your handling code here:
+        if (selectedRoomId == null) {
+            JOptionPane.showMessageDialog(this, "请先选择一个聊天室！");
+            return;
+        }
+        String content = jTextField1.getText().trim();
+        if (content.isEmpty()) return;
+
+        boolean sent = new GroupMessageDAO().insert(selectedRoomId, currentUserId, content);
+        if (sent) {
+            jTextField1.setText("");
+            loadGroupMessages(); // 刷新
+        } else {
+            JOptionPane.showMessageDialog(this, "发送失败！");
+        }
+    }//GEN-LAST:event_jButton4ActionPerformed
+
+    private void jButton7ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
+        // TODO add your handling code here:
+        if (selectedPrivateUserId == null) {
+            JOptionPane.showMessageDialog(this, "请先选择一个私聊用户！");
+            return;
+        }
+        String content = jTextField2.getText().trim();
+        if (content.isEmpty()) return;
+
+        boolean sent = new PrivateMessageDAO().insert(currentUserId, selectedPrivateUserId, content);
+        if (sent) {
+            jTextField2.setText("");
+            loadPrivateMessages();
+        } else {
+            JOptionPane.showMessageDialog(this, "私聊发送失败！");
+        }
+    }//GEN-LAST:event_jButton4ActionPerformed
 
     private void jTextField1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField1ActionPerformed
         // TODO add your handling code here:
@@ -442,62 +532,53 @@ public class ChatRoomFrame extends javax.swing.JFrame {
 
     private void jButton1ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton1ActionPerformed
         // TODO add your handling code here:
-        String msg = jTextField1.getText();
-        String room = getCurrentRoom();
-        if (msg.isEmpty()) return;
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "确定要永久删除账号 [" + currentUsername + "] 吗？此操作不可恢复！",
+                "确认删除", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            // 删除用户（级联删除 room_members, private_messages, group_messages 中相关记录）
+            try (Connection conn = DBUtil.getConnection()) {
+                conn.setAutoCommit(false);
+                // 先删除群聊消息、私聊消息、房间成员、房间（若为创建者）、最后用户
+                String sql1 = "DELETE FROM group_messages WHERE sender_id = ?";
+                String sql2 = "DELETE FROM private_messages WHERE sender_id = ? OR receiver_id = ?";
+                String sql3 = "DELETE FROM room_members WHERE user_id = ?";
+                String sql4 = "DELETE FROM chat_rooms WHERE creator_id = ?"; // 可选：是否允许删除房间？
+                String sql5 = "DELETE FROM users WHERE id = ?";
 
-        try {
-            DatagramSocket socket = new DatagramSocket();
-            String request = "{\"type\": \"send_group_msg\", \"room\": \" + room + \", \"sender\": \"" + username + "\", \"message\": \"" + msg + "\"}";
-            byte[] data = request.getBytes();
-            InetAddress address = InetAddress.getByName("localhost");
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
-            socket.send(packet);
+                try (PreparedStatement ps1 = conn.prepareStatement(sql1);
+                     PreparedStatement ps2 = conn.prepareStatement(sql2);
+                     PreparedStatement ps3 = conn.prepareStatement(sql3);
+                     PreparedStatement ps4 = conn.prepareStatement(sql4);
+                     PreparedStatement ps5 = conn.prepareStatement(sql5)) {
 
-            // 更新聊天框
-            jTextArea1.append(username + ": " + msg + "\n");
-            jTextField1.setText("");
+                    ps1.setInt(1, currentUserId);
+                    ps2.setInt(1, currentUserId);
+                    ps2.setInt(2, currentUserId);
+                    ps3.setInt(1, currentUserId);
+                    ps4.setInt(1, currentUserId);
+                    ps5.setInt(1, currentUserId);
 
-        } catch (Exception e) {
-            e.printStackTrace();
+                    ps1.executeUpdate();
+                    ps2.executeUpdate();
+                    ps3.executeUpdate();
+                    ps4.executeUpdate(); // 删除其创建的房间（可选策略）
+                    ps5.executeUpdate();
+
+                    conn.commit();
+                    JOptionPane.showMessageDialog(this, "账号已成功删除！");
+                    System.exit(0);
+                } catch (SQLException e) {
+                    conn.rollback();
+                    e.printStackTrace();
+                    JOptionPane.showMessageDialog(this, "删除失败：" + e.getMessage());
+                }
+            } catch (SQLException e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(this, "数据库连接失败");
+            }
         }
     }//GEN-LAST:event_jButton1ActionPerformed
-
-    private void jTextField2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jTextField2ActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_jTextField2ActionPerformed
-
-    private void jButton2ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton2ActionPerformed
-        // TODO add your handling code here:
-        String msg = jTextField2.getText();
-        if (msg.isEmpty()) return;
-
-        try {
-            DatagramSocket socket = new DatagramSocket();
-            String request = "{\"type\": \"send_private_msg\", \"sender\": \"" + username + "\", \"receiver\": \"bob\", \"message\": \"" + msg + "\"}";
-            byte[] data = request.getBytes();
-            InetAddress address = InetAddress.getByName("localhost");
-            DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
-            socket.send(packet);
-
-            jTextArea2.append(username + ": " + msg + "\n");
-            jTextField2.setText("");
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }//GEN-LAST:event_jButton2ActionPerformed
-
-    private void jButton4ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton4ActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_jButton4ActionPerformed
-
-    private void jButton5ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton5ActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_jButton5ActionPerformed
-
-    private void jButton6ActionPerformed(java.awt.event.ActionEvent evt) {//GEN-FIRST:event_jButton6ActionPerformed
-        // TODO add your handling code here:
-    }//GEN-LAST:event_jButton6ActionPerformed
 
     /**
      * @param args the command line arguments
@@ -528,8 +609,7 @@ public class ChatRoomFrame extends javax.swing.JFrame {
     private javax.swing.JButton jButton2;
     private javax.swing.JButton jButton3;
     private javax.swing.JButton jButton4;
-    private javax.swing.JButton jButton5;
-    private javax.swing.JButton jButton6;
+    private javax.swing.JButton jButton7;
     private javax.swing.JLabel jLabel1;
     private javax.swing.JLabel jLabel2;
     private javax.swing.JLabel jLabel3;
