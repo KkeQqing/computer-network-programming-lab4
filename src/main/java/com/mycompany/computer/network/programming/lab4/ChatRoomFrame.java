@@ -250,7 +250,7 @@ public class ChatRoomFrame extends javax.swing.JFrame {
         jTextArea1.setRows(5);
         jScrollPane2.setViewportView(jTextArea1);
 
-        jTextField1.setText("jTextField1");
+        jTextField1.setText("");
         jTextField1.addActionListener(new java.awt.event.ActionListener() {
             public void actionPerformed(java.awt.event.ActionEvent evt) {
                 jTextField1ActionPerformed(evt);
@@ -349,7 +349,7 @@ public class ChatRoomFrame extends javax.swing.JFrame {
         jTextArea2.setRows(5);
         jScrollPane4.setViewportView(jTextArea2);
 
-        jTextField2.setText("jTextField2");
+        jTextField2.setText("");
 
         jButton7.setText("发送");
 

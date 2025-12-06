@@ -25,6 +25,7 @@ public class ComputerNetworkProgrammingLab4 {
 
         java.awt.EventQueue.invokeLater(() -> {
             new LoginFrame().setVisible(true);
+            new LoginFrame().setVisible(true);
         });
     }
 }

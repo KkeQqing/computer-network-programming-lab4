@@ -51,7 +51,7 @@ public class ChatRoomDAO {
     }
 
     public ChatRoom findByName(String name) {
-        String sql = "SELECT id, name, created_at FROM chat_rooms WHERE name = ?";
+        String sql = "SELECT id, name, creator_id , created_at FROM chat_rooms WHERE name = ?";
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, name);

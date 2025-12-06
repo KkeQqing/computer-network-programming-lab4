@@ -273,28 +273,45 @@ public class LoginFrame extends javax.swing.JFrame {
         btnRegister.setBounds(110, 110, 100, 30);
 
         btnRegister.addActionListener(e -> {
-            String username = tfUsername.getText();
+            String username = tfUsername.getText().trim();
             String password = new String(pfPassword.getPassword());
 
-            try {
-                // 发送注册请求到服务器
-                DatagramSocket socket = new DatagramSocket();
-                String request = "{\"type\": \"register\", \"username\": \"" + username + "\", \"password\": \"" + password + "\"}";
-                byte[] data = request.getBytes();
-                InetAddress address = InetAddress.getByName("localhost");
-                DatagramPacket packet = new DatagramPacket(data, data.length, address, 9000);
+            if (username.isEmpty() || password.isEmpty()) {
+                JOptionPane.showMessageDialog(registerFrame, "账号或密码不能为空！");
+                return;
+            }
+
+            try (DatagramSocket socket = new DatagramSocket()) {
+                // 使用 Gson 构造注册请求
+                com.google.gson.JsonObject req = new com.google.gson.JsonObject();
+                req.addProperty("action", "register");
+                req.addProperty("username", username);
+                req.addProperty("password", password);
+
+                byte[] data = new com.google.gson.Gson().toJson(req).getBytes(StandardCharsets.UTF_8);
+                InetAddress address = InetAddress.getByName("127.0.0.1");
+                DatagramPacket packet = new DatagramPacket(data, data.length, address, 9999);
                 socket.send(packet);
 
                 // 接收响应
-                byte[] buffer = new byte[1024];
+                byte[] buffer = new byte[65536];
                 DatagramPacket response = new DatagramPacket(buffer, buffer.length);
                 socket.receive(response);
-                String result = new String(response.getData(), 0, response.getLength());
 
-                JOptionPane.showMessageDialog(null, result);
-                registerFrame.dispose();
+                String respStr = new String(response.getData(), 0, response.getLength(), StandardCharsets.UTF_8);
+                com.google.gson.JsonObject resp = com.google.gson.JsonParser.parseString(respStr).getAsJsonObject();
+
+                if (resp.has("success") && resp.get("success").getAsBoolean()) {
+                    JOptionPane.showMessageDialog(registerFrame, "注册成功！");
+                    registerFrame.dispose();
+                } else {
+                    String msg = resp.has("message") ? resp.get("message").getAsString() : "注册失败";
+                    JOptionPane.showMessageDialog(registerFrame, msg);
+                }
+
             } catch (Exception ex) {
                 ex.printStackTrace();
+                JOptionPane.showMessageDialog(registerFrame, "网络错误：无法连接到服务器");
             }
         });
 
