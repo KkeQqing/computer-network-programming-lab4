@@ -47,3 +47,99 @@
 
 后续需要修改：
 将两秒一刷新改为有新增时再刷新（咕咕咕）
+
+
+数据库创建
+-- 创建数据库（如果不存在），并指定字符集与排序规则
+CREATE DATABASE IF NOT EXISTS UDP_test
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+-- 使用该数据库
+USE UDP_test;
+
+-- 用户表：存储系统中的所有用户信息
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '用户唯一ID，自增主键',
+    username VARCHAR(50) UNIQUE NOT NULL COMMENT '用户名，唯一且不能为空',
+    password VARCHAR(100) NOT NULL COMMENT '用户密码',
+    status ENUM('online', 'offline') DEFAULT 'offline' COMMENT '用户在线状态：online（在线）或 offline（离线）',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '用户注册时间'
+) COMMENT = '用户信息表';
+
+-- 聊天室表：记录所有群聊房间的基本信息
+CREATE TABLE chat_rooms (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '聊天室唯一ID，自增主键',
+    name VARCHAR(100) UNIQUE NOT NULL COMMENT '聊天室名称，全局唯一',
+    creator_id INT COMMENT '创建该聊天室的用户ID',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '聊天室创建时间',
+    FOREIGN KEY (creator_id) REFERENCES users(id) ON DELETE SET NULL
+) COMMENT = '群聊聊天室表';
+
+-- 聊天室成员表：记录哪些用户加入了哪些聊天室
+CREATE TABLE room_members (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '成员关系ID，自增主键',
+    room_id INT COMMENT '所属聊天室ID',
+    user_id INT COMMENT '用户ID',
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '用户加入聊天室的时间',
+    FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_room_user (room_id, user_id) COMMENT '确保同一用户不能重复加入同一聊天室'
+) COMMENT = '聊天室成员关联表';
+
+-- 群聊消息表：存储所有群聊消息
+CREATE TABLE group_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '消息唯一ID，自增主键',
+    room_id INT COMMENT '消息所属的聊天室ID',
+    sender_id INT COMMENT '发送消息的用户ID',
+    message TEXT COMMENT '消息内容（支持长文本）',
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '消息发送时间',
+    FOREIGN KEY (room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
+) COMMENT = '群聊消息记录表';
+
+-- 私聊消息表：存储用户之间的私聊消息
+CREATE TABLE private_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '私聊消息唯一ID，自增主键',
+    sender_id INT COMMENT '发送者用户ID',
+    receiver_id INT COMMENT '接收者用户ID',
+    message TEXT COMMENT '私聊消息内容',
+    sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '消息发送时间',
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE
+) COMMENT = '私聊消息记录表';
+
+数据输入
+-- 使用数据库
+USE UDP_test;
+
+-- 1. 插入用户数据（3个用户）
+INSERT INTO users (username, password, status) VALUES
+('admin', '123456', 'online'),
+('bob',   '123456', 'online'),
+('alice', '123456', 'offline');
+
+
+-- 2. 插入聊天室数据（2个聊天室）
+INSERT INTO chat_rooms (name, creator_id) VALUES
+('room1', 1),   -- 由 admin 创建
+('romm2', 2);     -- 由 bob 创建
+
+-- 3. 插入聊天室成员（每个房间加入 2-3 人）
+INSERT INTO room_members (room_id, user_id) VALUES
+(1, 1),  -- admin in 项目讨论组
+(1, 2),  -- bob in 项目讨论组
+(1, 3),  -- alice in 项目讨论组
+(2, 2),  -- bob in 闲聊天地
+(2, 1);  -- admin in 闲聊天地
+
+-- 4. 插入群聊消息（3条）
+INSERT INTO group_messages (room_id, sender_id, message) VALUES
+(1, 1, '大家好，今天的任务进度如何？'),
+(1, 2, '我已完成前端部分！'),
+(2, 2, '周末有什么计划？');
+
+-- 5. 插入私聊消息（2条：alice → bob，bob → alice）
+INSERT INTO private_messages (sender_id, receiver_id, message) VALUES
+(1, 2, 'Hey Bob，能帮忙看下这个 bug 吗？'),
+(2, 1, '当然可以，发我链接吧！');
