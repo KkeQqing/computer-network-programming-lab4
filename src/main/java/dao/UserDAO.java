@@ -81,6 +81,7 @@ public class UserDAO {
         return null;
     }
 
+    // 插入用户
     public boolean insert(String username, String password) {
         String sql = "INSERT INTO users (username, password) VALUES (?, ?)";
         try (Connection conn = DBUtil.getConnection();

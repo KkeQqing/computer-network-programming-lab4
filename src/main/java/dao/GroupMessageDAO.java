@@ -9,6 +9,7 @@ import java.util.List;
 
 public class GroupMessageDAO {
 
+    // 获取某个群组下的所有消息
     public List<GroupMessage> findByRoomId(int roomId) {
         List<GroupMessage> messages = new ArrayList<>();
         String sql = "SELECT id, room_id, sender_id, message, sent_at FROM group_messages WHERE room_id = ? ORDER BY sent_at ASC";
@@ -32,6 +33,7 @@ public class GroupMessageDAO {
         return messages;
     }
 
+    // 插入一条群组消息
     public boolean insert(int roomId, int senderId, String message) {
         String sql = "INSERT INTO group_messages (room_id, sender_id, message) VALUES (?, ?, ?)";
         try (Connection conn = DBUtil.getConnection();

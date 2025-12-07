@@ -9,6 +9,7 @@ import java.util.List;
 
 public class RoomMemberDAO {
 
+    // 通过房间id获取房间的成员列表
     public List<RoomMember> findByRoomId(int roomId) {
         List<RoomMember> members = new ArrayList<>();
         String sql = "SELECT id, room_id, user_id, joined_at FROM room_members WHERE room_id = ?";
@@ -31,6 +32,7 @@ public class RoomMemberDAO {
         return members;
     }
 
+    // 通过用户id获取用户加入的房间列表
     public List<RoomMember> findByUserId(int userId) {
         List<RoomMember> members = new ArrayList<>();
         String sql = "SELECT id, room_id, user_id, joined_at FROM room_members WHERE user_id = ?";

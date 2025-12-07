@@ -42,6 +42,7 @@ public class PrivateMessageDAO {
         return messages;
     }
 
+    // 发送私聊消息
     public boolean insert(int senderId, int receiverId, String message) {
         String sql = "INSERT INTO private_messages (sender_id, receiver_id, message) VALUES (?, ?, ?)";
         try (Connection conn = DBUtil.getConnection();

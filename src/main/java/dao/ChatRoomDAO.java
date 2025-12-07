@@ -9,6 +9,7 @@ import java.util.List;
 
 public class ChatRoomDAO {
 
+    // 获取所有
     public List<ChatRoom> findAll() {
         List<ChatRoom> rooms = new ArrayList<>();
         String sql = "SELECT id, name, creator_id, created_at FROM chat_rooms";
@@ -29,6 +30,7 @@ public class ChatRoomDAO {
         return rooms;
     }
 
+    // 通过id 查询
     public ChatRoom findById(int id) {
         String sql = "SELECT id, name, creator_id, created_at FROM chat_rooms WHERE id = ?";
         try (Connection conn = DBUtil.getConnection();
@@ -50,6 +52,7 @@ public class ChatRoomDAO {
         return null;
     }
 
+    // 通过name 查询
     public ChatRoom findByName(String name) {
         String sql = "SELECT id, name, creator_id , created_at FROM chat_rooms WHERE name = ?";
         try (Connection conn = DBUtil.getConnection();
@@ -71,7 +74,7 @@ public class ChatRoomDAO {
         return null;
     }
 
-
+    // 插入
     public boolean insert(String name, Integer creatorId) {
         String sql = "INSERT INTO chat_rooms (name, creator_id) VALUES (?, ?)";
         try (Connection conn = DBUtil.getConnection();

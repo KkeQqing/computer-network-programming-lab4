@@ -17,7 +17,7 @@ import model.User;
 public class UDPServer {
     private static final int PORT = 9999;
     private static final Gson gson = new Gson();
-    private static final ExecutorService threadPool = Executors.newCachedThreadPool();
+    private static final ExecutorService threadPool = Executors.newCachedThreadPool(); // 线程池
 
     public static void main(String[] args) {
         try (DatagramSocket socket = new DatagramSocket(PORT)) {
@@ -35,6 +35,7 @@ public class UDPServer {
         }
     }
 
+    // 处理请求
     private static void handleRequest(DatagramSocket socket, DatagramPacket packet) {
         String jsonStr = new String(packet.getData(), 0, packet.getLength(), StandardCharsets.UTF_8);
         try {
