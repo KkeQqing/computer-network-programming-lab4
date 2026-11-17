@@ -43,3 +43,14 @@ Thumbs.db
 # 其他
 # ========================
 dependency-reduced-pom.xml
+
+# auto-added ignore rules
+*.ipr
+.vscode/
+.vs/
+*.suo
+*.user
+desktop.ini
+*.tmp
+*.class
+.gradle/
